@@ -2,13 +2,12 @@ package main
 
 import (
 	"context"
-	"embed"
-	"html/template"
-	"io/fs"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,21 +20,27 @@ type HttpResponse struct {
 	Data interface{} `json:"data"`
 }
 
-//go:embed templates/*
-var files embed.FS
+type DownloadRequest struct {
+	FolderPath   string `json:"folderPath"` // 文件夹名称
+	DownloadUrls []struct {
+		URL      string `json:"url"`
+		Filename string `json:"filename"`
+	} `json:"downloadUrls"`
+}
 
 func main() {
 	r := gin.Default()
 
-	sub, err := fs.Sub(files, "templates")
-	if err != nil {
-		panic(err)
-	}
-	tmpl := template.Must(template.ParseFS(sub, "*.tmpl"))
-	r.SetHTMLTemplate(tmpl)
+	// 加载静态文件
+	r.Static("/static", "./static") // 将 "/static" 路径映射到项目目录的 "./static" 文件夹
+
+	// 加载 HTML 模板文件
+	r.LoadHTMLGlob("templates/*") // 加载 templates 文件夹中的所有模板文件
+
+	// 设置路由，返回 index.html 页面
 	r.GET("/", func(c *gin.Context) {
-		c.HTML(200, "index.tmpl", gin.H{
-			"title": "github.com/wujunwei928/parse-video Demo",
+		c.HTML(http.StatusOK, "index.html", gin.H{
+			"title": "在线短视频去水印解析", // 可以传递数据到模板中
 		})
 	})
 
@@ -55,6 +60,25 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, jsonRes)
+	})
+
+	r.POST("/api/download", func(c *gin.Context) {
+		var req DownloadRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+		// 遍历下载 URL
+		for _, file := range req.DownloadUrls {
+			// 下载文件
+			err := downloadFile(file.URL, req.FolderPath, file.Filename)
+			if err != nil {
+				//c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to download file"})
+				//return
+				log.Println("Failed to download file:", err)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "All files downloaded successfully!"})
 	})
 
 	r.GET("/video/id/parse", func(c *gin.Context) {
@@ -102,4 +126,46 @@ func main() {
 	}
 	log.Println("Server exiting")
 
+}
+
+// downloadFile 下载文件并保存到指定路径
+func downloadFile(url string, fileFolder, filepath string) error {
+	fileFolder = path.Join("D:\\带货短视频\\", fileFolder)
+	EnsureDirExists(fileFolder)
+	// 构造完整文件路径
+	fullPath := path.Join(fileFolder, filepath)
+
+	response, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	out, err := os.Create(fullPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, response.Body)
+	return err
+}
+
+// 判断目录是否存在，如果不存在则创建
+func EnsureDirExists(dirPath string) (error, bool) {
+	info, err := os.Stat(dirPath)
+	if os.IsNotExist(err) {
+		err := os.MkdirAll(dirPath, os.ModePerm)
+		if err != nil {
+			return err, false
+		}
+	} else if err != nil {
+		return err, false
+	} else if !info.IsDir() {
+		return err, false
+	} else {
+		return nil, true
+	}
+
+	return nil, false
 }

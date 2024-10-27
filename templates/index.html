@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-cmn-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no"/>
+    <title>{{ .title }}</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mdui@1.0.0/dist/css/mdui.min.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/mdui@1.0.0/dist/js/mdui.min.js"></script>
+    <script src="https://cdn.bootcss.com/jquery/2.1.4/jquery.min.js"></script>
+</head>
+<body class="mdui-theme-primary-indigo mdui-theme-accent-pink">
+<style>
+    /* 样式定义 */
+</style>
+
+<main class="mdui-container">
+    <div class="mdui-card">
+        <h1 class='mdui-text-center'>在线短视频去水印解析</h1>
+        <div class="mdui-card-content mdui-typo">
+            <div id="input-container">
+                <div class="mdui-textfield mdui-textfield-floating-label">
+                    <input class="mdui-textfield-input url-input" type="text" placeholder="请粘贴视频分享地址" required/>
+                    <div class="mdui-textfield-error">需要解析的视频地址不能为空</div>
+                </div>
+            </div>
+            <button class="mdui-btn mdui-color-theme-accent mdui-ripple" onclick="addInput()">添加输入框</button>
+            <button id="parseAndDownloadBtn" class="mdui-btn mdui-color-theme-accent mdui-ripple" onclick="parseValue()">一键解析</button>
+            <button class="mdui-btn mdui-color-theme-accent mdui-ripple" onclick="downloadAll()">一键下载</button>
+        </div>
+        <div class="down mdui-text-center"></div>
+    </div>
+</main>
+
+<script>
+
+    downloadUrls = []; // 重置下载 URL 数组
+
+
+    async function downloadAll() {
+        const folderHandle = await window.showDirectoryPicker(); // 选择文件夹
+        const folderPath = folderHandle.name; // 获取文件夹名称
+
+        const urlsToDownload = downloadUrls.map((url, index) => ({
+            url,
+            filename: `video_${index + 1}.mp4` // 生成顺序命名的文件名
+        }));
+        // 准备要发送的数据
+        const requestData = {
+            folderPath, // 仅传递文件夹名称
+            downloadUrls: urlsToDownload
+        };
+        console.log(requestData)
+        // 发送 POST 请求到 Gin 服务
+        const response = await fetch('/api/download', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData),
+        });
+
+        if (response.ok) {
+            alert('视频下载完成');
+        } else {
+            alert('下载请求失败！');
+        }
+    }
+
+    function parseValue() {
+        const inputs = document.querySelectorAll(".url-input");
+        downloadUrls = []; // 重置下载 URL 数组
+
+        // 清除之前的解析结果
+        const previousResults = document.querySelectorAll(".parse-result");
+        previousResults.forEach(result => result.remove());
+
+        inputs.forEach((input, index) => {
+            const data = input.value;
+            if (!data) {
+                console.log(`输入框 ${index + 1} 内容为空，跳过解析`);
+                return;
+            }
+
+            // 创建一个新的 div 来存储解析结果
+            const resultDiv = document.createElement("div");
+            resultDiv.classList.add("parse-result");
+
+            // 在解析按钮下插入结果 div
+            input.parentNode.appendChild(resultDiv);
+
+            parseVideoUrl(data)
+                .then((jsonObj) => {
+                    // 设置成功消息并添加下载按钮
+                    resultDiv.innerHTML = `<p style="color: green;">第 ${index + 1} 个解析成功</p>`;
+                    if (jsonObj.data.video_url) {
+                        downloadUrls.push(jsonObj.data.video_url);
+                    }
+                })
+                .catch((error) => {
+                    // 设置失败消息
+                    resultDiv.innerHTML = `<p style="color: red;">第 ${index + 1} 个解析失败: ${error}</p>`;
+                });
+        });
+        console.log(downloadUrls)
+    }
+
+    // 动态添加新的输入框
+    function addInput() {
+        const newDiv = document.createElement("div");
+        newDiv.classList.add("mdui-textfield", "mdui-textfield-floating-label");
+
+        const newInput = document.createElement("input");
+        newInput.classList.add("mdui-textfield-input", "url-input");
+        newInput.type = "text";
+        newInput.placeholder = "请粘贴视频分享地址";
+        newInput.required = true;
+
+        const errorDiv = document.createElement("div");
+        errorDiv.classList.add("mdui-textfield-error");
+        errorDiv.innerText = "需要解析的视频地址不能为空";
+
+        newDiv.appendChild(newInput);
+        newDiv.appendChild(errorDiv);
+
+        document.getElementById("input-container").appendChild(newDiv);
+    }
+
+    // 解析视频 URL
+    async function parseVideoUrl(url) {
+        try {
+            const response = await fetch(`/video/share/url/parse?url=${encodeURIComponent(url)}`);
+            const data = await response.json();
+            if (data.code === 200) return data;
+            throw new Error(data.msg || "解析失败");
+        } catch (error) {
+            throw new Error(error.message);
+        }
+    }
+</script>
+</body>
+</html>
